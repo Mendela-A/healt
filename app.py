@@ -10,6 +10,7 @@ FILE_PATH1 = None # Шлях до файлу-довідника (patients.xlsx)
 df1 = None
 df2 = None
 changes = []
+filtered_df = None  # Для зберігання фільтрованих даних на другій вкладці
 
 # --- ФУНКЦІЇ ДЛЯ ОБРОБКИ ДАНИХ ТА GUI ---
 
@@ -158,6 +159,65 @@ def update_treeview():
             change['new_name']
         ))
 
+def load_hospitalization_file():
+    """Завантажує файл госпіталізацій та відображає відфільтровані дані."""
+    global filtered_df
+    
+    file_path = filedialog.askopenfilename(
+        title="Вибрати файл госпіталізацій",
+        filetypes=(("Excel files", "*.xlsx"), ("All files", "*.*"))
+    )
+    
+    if not file_path:
+        return
+    
+    try:
+        df = pd.read_excel(file_path)
+        
+        # Вибираємо потрібні колонки
+        selected_columns = df[[
+            'Номер паперової історії хвороби',
+            'Дата госпіталізації',
+            'Медпрацівник. відповідальний за епізод',
+            'ПІБ пацієнта',
+            'Дата та час виписки',
+            'Помилка оплати НСЗУ'
+        ]]
+        
+        # Фільтруємо дані - залишаємо тільки рядки, де 'Помилка оплати НСЗУ' не пуста
+        filtered_df = selected_columns[selected_columns['Помилка оплати НСЗУ'].notnull()]
+        
+        # Оновлюємо таблицю на вкладці 2
+        update_filtered_treeview()
+        
+        status_label.config(text=f"Завантажено! Знайдено {len(filtered_df)} записів з помилками оплати", fg="green")
+        
+    except KeyError as e:
+        messagebox.showerror("Помилка", f"Файл не містить необхідної колонки: {e}")
+    except Exception as e:
+        messagebox.showerror("Помилка", f"Помилка при завантаженні файлу: {e}")
+
+def update_filtered_treeview():
+    """Оновлює таблицю з фільтрованими даними."""
+    if filtered_df is None:
+        return
+    
+    # Очищаємо таблицю
+    for item in tree_filtered.get_children():
+        tree_filtered.delete(item)
+    
+    # Заповнюємо таблицю
+    for idx, row in filtered_df.iterrows():
+        tree_filtered.insert('', tk.END, values=(
+            idx + 1,
+            row['Номер паперової історії хвороби'],
+            row['Дата госпіталізації'],
+            row['Медпрацівник. відповідальний за епізод'],
+            row['ПІБ пацієнта'],
+            row['Дата та час виписки'],
+            row['Помилка оплати НСЗУ']
+        ))
+
 def save_changes():
     """Зберігає зміни в новий Excel-файл з виділенням."""
     if df2 is None or len(changes) == 0:
@@ -217,18 +277,26 @@ def save_changes():
 # --- СТВОРЕННЯ GUI ---
 root = tk.Tk()
 root.title("Перегляд та оновлення ПІБ пацієнтів")
-root.geometry("900x550")
+root.geometry("900x600")
 
-title_label = tk.Label(root, text="Знайдені розбіжності в ПІБ пацієнтів", 
+# --- СТВОРЕННЯ ВКЛАДОК (NOTEBOOK) ---
+notebook = ttk.Notebook(root)
+notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+# ===== ВКЛАДКА 1: Основна функціональність =====
+tab1 = ttk.Frame(notebook)
+notebook.add(tab1, text="Основна")
+
+title_label = tk.Label(tab1, text="Знайдені розбіжності в ПІБ пацієнтів", 
                         font=("Arial", 14, "bold"), pady=10)
 title_label.pack()
 
-info_label = tk.Label(root, text="1. Виберіть файл-довідник. 2. Виберіть файл для оновлення.", 
+info_label = tk.Label(tab1, text="1. Виберіть файл-довідник. 2. Виберіть файл для оновлення.", 
                         font=("Arial", 10), pady=5)
 info_label.pack()
 
 # --- КНОПКИ УПРАВЛІННЯ ---
-button_frame = tk.Frame(root)
+button_frame = tk.Frame(tab1)
 button_frame.pack(pady=10)
 
 # 1. Кнопка вибору основного файлу
@@ -255,7 +323,7 @@ exit_button = tk.Button(button_frame, text="Вихід",
 exit_button.pack(side=tk.LEFT, padx=5)
 
 # --- ТАБЛИЦЯ (TREEVIEW) ---
-frame = ttk.Frame(root)
+frame = ttk.Frame(tab1)
 frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
 scrollbar = ttk.Scrollbar(frame)
@@ -276,6 +344,57 @@ tree.column("Старе ПІБ", width=300)
 tree.column("Нове ПІБ", width=300)
 
 tree.pack(fill=tk.BOTH, expand=True)
+
+# ===== ВКЛАДКА 2: Фільтровані дані по помилкам оплати =====
+tab2 = ttk.Frame(notebook)
+notebook.add(tab2, text="Помилки оплати")
+
+# Заголовок та кнопка завантаження файлу
+header_frame = tk.Frame(tab2, bg="lightblue", padx=10, pady=10)
+header_frame.pack(fill=tk.X)
+
+title_label2 = tk.Label(header_frame, text="Записи з помилками оплати НСЗУ", 
+                        font=("Arial", 12, "bold"), bg="lightblue")
+title_label2.pack(side=tk.LEFT)
+
+load_file_button2 = tk.Button(header_frame, text="Завантажити файл", 
+                              command=load_hospitalization_file, bg="#4CAF50", fg="white",
+                              font=("Arial", 10, "bold"), padx=15, pady=5)
+load_file_button2.pack(side=tk.RIGHT, padx=5)
+
+# Статус
+status_label = tk.Label(tab2, text="Файл не завантажено", 
+                        font=("Arial", 9), fg="#666")
+status_label.pack(pady=5)
+
+# Таблиця з фільтрованими даними
+frame_filtered = ttk.Frame(tab2)
+frame_filtered.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+scrollbar_filtered = ttk.Scrollbar(frame_filtered)
+scrollbar_filtered.pack(side=tk.RIGHT, fill=tk.Y)
+
+columns_filtered = ("№", "Номер історії", "Дата госпіталізації", "Медпрацівник", "ПІБ пацієнта", "Дата виписки", "Помилка оплати")
+tree_filtered = ttk.Treeview(frame_filtered, columns=columns_filtered, show='headings', yscrollcommand=scrollbar_filtered.set)
+scrollbar_filtered.config(command=tree_filtered.yview)
+
+tree_filtered.heading("№", text="№")
+tree_filtered.heading("Номер історії", text="Номер історії")
+tree_filtered.heading("Дата госпіталізації", text="Дата госпіталізації")
+tree_filtered.heading("Медпрацівник", text="Медпрацівник")
+tree_filtered.heading("ПІБ пацієнта", text="ПІБ пацієнта")
+tree_filtered.heading("Дата виписки", text="Дата виписки")
+tree_filtered.heading("Помилка оплати", text="Помилка оплати")
+
+tree_filtered.column("№", width=40, anchor='center')
+tree_filtered.column("Номер історії", width=80, anchor='center')
+tree_filtered.column("Дата госпіталізації", width=100, anchor='center')
+tree_filtered.column("Медпрацівник", width=150)
+tree_filtered.column("ПІБ пацієнта", width=150)
+tree_filtered.column("Дата виписки", width=100, anchor='center')
+tree_filtered.column("Помилка оплати", width=200)
+
+tree_filtered.pack(fill=tk.BOTH, expand=True)
 
 # --- ЗАПУСК GUI ---
 root.mainloop()
